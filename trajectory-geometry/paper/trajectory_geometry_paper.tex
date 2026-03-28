@@ -1,0 +1,1115 @@
+\documentclass[11pt,twocolumn]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{natbib}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage[margin=1in]{geometry}
+\usepackage{microtype}
+
+% Custom commands
+\newcommand{\Rg}{R_g}
+\newcommand{\Deff}{D_{\text{eff}}}
+\newcommand{\groupone}{\textsc{G1}}
+\newcommand{\grouptwo}{\textsc{G2}}
+\newcommand{\groupthree}{\textsc{G3}}
+\newcommand{\groupfour}{\textsc{G4}}
+
+\title{The Shape of Reasoning: Regime-Dependent Geometric Signatures\\in Transformer Hidden State Trajectories}
+
+\author{
+Kareem Soliman\thanks{Independent Researcher. Email: \texttt{kareem.soliman@outlook.com.au}. This research was conducted independently using open-source models and consumer computing hardware, with AI-assisted analysis tools for implementation support. All experimental design, theoretical contributions, and interpretive frameworks are the author's own.}
+}
+
+\date{March 2026}
+
+\begin{document}
+\maketitle
+
+% ============================================================
+% ABSTRACT
+% ============================================================
+\begin{abstract}
+We introduce \textbf{trajectory geometry}, a framework for analysing the dynamic evolution of hidden state representations in transformer language models during multi-step reasoning. By treating the residual stream activations across token positions as trajectories through high-dimensional space, and characterising these trajectories using geometric and dynamical metrics drawn from differential geometry, dynamical systems theory, and recurrence quantification analysis, we reveal that computational success leaves distinct geometric fingerprints in the model's internal representations---but that these fingerprints are fundamentally \emph{regime-dependent}.
+
+Across four transformer architectures spanning three distinct model families (Qwen2.5-0.5B and 1.5B, Pythia-410m, and Gemma~3~1B; 410M--1.5B parameters), we analyse multi-step arithmetic problems under two prompting regimes (Direct-answer and Chain-of-Thought). We report eight core findings: (1)~failed reasoning exhibits catastrophic dimensional collapse ($\Deff \approx 3.4$ vs.\ $\approx 18.9$, Cohen's $d \approx 4.7$ at layer~14); (2)~the geometric signature of success \emph{reverses sign} between regimes, with 10+ metrics showing opposite polarity; (3)~difficulty-stratified geometric separation remains very large across archive-defined bins (peak $d = 4.15$--$7.75$); (4)~failures cluster into structurally distinct subtypes; (5)~a measurable commitment phase transition distinguishes reasoning dynamics from premature convergence, with Direct trajectories committing earlier than CoT trajectories; (6)~trajectory geometry predicts correctness at AUC~0.955 within the Direct regime in our layer-13 local audit; (7)~a two-way variance decomposition shows regime accounts for $\approx 27.8\%$ of total variance at peak layers and 74.6\% of explained variance among the six most regime-sensitive metrics; and (8)~nineteen geometric signatures are architecturally invariant across all tested model families.
+
+We formalise these findings as the \textbf{Regime-Relativity Principle}: there is no universal ``good trajectory'' for reasoning. Instead, what constitutes successful computation is regime-dependent, and the geometric properties that predict success under retrieval-like processing predict failure under deliberative reasoning. We additionally introduce \textbf{Probability Cloud Regression (PCR)}, a denoising methodology that recovers proto-attractor structure in early layers previously obscured by measurement noise. These findings have implications for monitoring system design, circuit discovery methodology, and our theoretical understanding of how transformers implement distinct computational strategies.
+
+\textbf{Keywords:} mechanistic interpretability, hidden states, trajectory analysis, chain-of-thought reasoning, computational geometry, transformer dynamics
+\end{abstract}
+
+% ============================================================
+% 1. INTRODUCTION
+% ============================================================
+\section{Introduction}
+\label{sec:intro}
+
+The capacity of large language models (LLMs) to perform multi-step reasoning has generated intense interest in understanding the internal mechanisms that support this capability. Existing approaches to mechanistic interpretability have made substantial progress by identifying circuits responsible for specific behaviours \citep{conmy2023acdc, wang2022interpretability}, decomposing dense activations into interpretable features via sparse autoencoders \citep{bricken2023monosemanticity, cunningham2023sparse}, and probing hidden representations for task-relevant information \citep{belinkov2022probing}. These methods have yielded valuable insights into \emph{what} information is encoded and \emph{which} components participate in computation.
+
+A fundamental question remains underexplored: \emph{how do internal representations move through latent space during multi-step reasoning}, and what do these movement patterns reveal about computational mechanisms? Circuit discovery identifies the wires; probing identifies what flows through them; but neither captures the \emph{dynamics} of how representations evolve over the course of a generation. Two models might activate identical circuits and encode identical features at a given layer, yet arrive at those states via qualitatively different trajectories---one through systematic exploration, the other through premature commitment to an incorrect hypothesis. Static analysis cannot distinguish these cases. Trajectory analysis can.
+
+This paper introduces \textbf{trajectory geometry} as a framework for studying these dynamics. We treat the sequence of hidden states $\{h_t\}_{t=1}^{T}$ at each layer of a transformer as a trajectory through $\mathbb{R}^D$, where $D$ is the hidden dimension, and characterise these trajectories using metrics from differential geometry (speed, curvature, tortuosity), dynamical systems theory (effective dimensionality, MSD exponent, radius of gyration), and recurrence quantification analysis (determinism, laminarity, recurrence rate). This approach is conceptually analogous to how physicists characterise particle motion or how neuroscientists study neural population dynamics \citep{gallego2017neural, cunningham2014dimensionality}---but applied to the representational dynamics of artificial neural networks.
+
+We apply this framework to a controlled reasoning task---multi-step arithmetic---evaluated under two prompting regimes (Direct-answer and Chain-of-Thought) across four transformer architectures from three distinct model families: Qwen2.5-0.5B and Qwen2.5-1.5B \citep{qwen2025qwen25}, Pythia-410m \citep{biderman2023pythia}, and Gemma~3~1B \citep{gemma2025gemma3}. Arithmetic offers the critical advantage of unambiguous ground truth, eliminating the interpretive noise that plagues reasoning benchmarks with subjective evaluation criteria. The two prompting conditions create a natural $2 \times 2$ factorial design (Regime $\times$ Correctness), yielding four groups: \groupone{} (Direct Fail), \grouptwo{} (Direct Success), \groupthree{} (CoT Fail), and \groupfour{} (CoT Success).
+
+This design enables disentangling three sources of geometric variation: (a)~regime effects (how prompting changes trajectory shape), (b)~quality effects (how correct and incorrect computations differ within a regime), and (c)~their interaction (whether success geometry is universal or regime-specific). Finding (c) to be strongly regime-dependent---success has \emph{opposite} geometric signatures in the two regimes---constitutes our central result and has consequences for how the interpretability community approaches monitoring, evaluation, and intervention.
+
+We additionally introduce Probability Cloud Regression (PCR), a denoising methodology that treats each geometric measurement as a noisy observation of a latent ``true'' trajectory property. PCR reveals proto-attractor structure in the earliest layers of the network (Layer~0), previously obscured by per-token measurement variance, and provides corrected estimates of geometric predictive power.
+
+The remainder of this paper proceeds as follows. Section~\ref{sec:related} reviews related work and identifies four specific gaps that trajectory geometry addresses. Section~\ref{sec:methods} describes our experimental design, multi-architecture hidden state extraction procedure, metric definitions, and the PCR denoising methodology. Section~\ref{sec:results} reports our eight core findings with full statistical details. Section~\ref{sec:discussion} interprets these findings, develops the Regime-Relativity Principle, and explicitly addresses the causal gap between correlational observations and intervention applications. Section~\ref{sec:limitations} acknowledges limitations. Section~\ref{sec:future} outlines future directions. The appendices provide complete metric definitions, negative results, PCR derivations, per-architecture detail tables, and a constraining mechanistic analysis using sparse autoencoders.
+
+
+% ============================================================
+% 2. RELATED WORK
+% ============================================================
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Mechanistic Interpretability}
+
+Mechanistic interpretability aims to reverse-engineer the algorithms implemented by neural networks through systematic analysis of internal computations. The field has organised around several core methodological traditions.
+
+\textbf{Circuit discovery.} Beginning with the identification of induction heads \citep{olsson2022context} and the Indirect Object Identification (IOI) circuit \citep{wang2022interpretability}, circuit discovery identifies minimal computational subgraphs responsible for specific behaviours. The Automatic Circuit Discovery (ACDC) algorithm \citep{conmy2023acdc} systematises this via activation patching. Edge Attribution Patching (EAP) extends scalability \citep{syed2023attribution}. Circuit discovery focuses on \emph{which} components participate but does not characterise \emph{how} representations evolve through those components over time.
+
+\textbf{Sparse autoencoders (SAEs).} SAEs address polysemanticity by decomposing dense activations into interpretable, monosemantic features \citep{bricken2023monosemanticity, cunningham2023sparse}. Scaling laws for features have been established \citep{templeton2024scaling}, and activation steering techniques demonstrate practical intervention \citep{turner2023activation}. SAEs reveal \emph{what} features are present at individual layers but do not track how feature compositions evolve across the token sequence during multi-step reasoning.
+
+\textbf{Probing and representation analysis.} Linear probes test whether specific information is linearly accessible in hidden states \citep{belinkov2022probing, li2024inference}. Representation engineering extends this to multi-layer analysis \citep{zou2023representation}. Recent work by \citet{mirtaheri2025motivated} demonstrates that probes can detect motivated reasoning patterns in hidden states with AUC approaching 1.0, providing complementary evidence that internal representations encode reasoning quality. However, probing asks whether information \emph{is accessible} at a point; it does not characterise how the computation that produces that information \emph{unfolds across tokens}.
+
+\subsection{Chain-of-Thought Reasoning}
+
+Chain-of-Thought (CoT) prompting \citep{wei2022chain} dramatically improves performance on multi-step reasoning tasks. A growing literature examines \emph{why} it works. \citet{feng2024towards} provide theoretical analysis showing CoT increases the effective depth of computation. \citet{merrill2024expressive} demonstrate that CoT expands the class of problems solvable by bounded-depth transformers. Work on pause tokens \citep{goyal2024think} and faithful reasoning analysis \citep{lanham2023measuring} further suggests that additional computation time, not merely verbal scaffolding, drives CoT's effectiveness.
+
+A critical concern is faithfulness: whether verbalised reasoning reflects actual computation. \citet{turpin2024language} demonstrate that biased contexts cause models to change answers while generating superficially coherent justifications, a form of motivated reasoning. \citet{korbak2025faithfulness} find that smaller models on harder tasks exhibit more faithful CoT---a ``faithfulness by necessity'' where models genuinely need their verbalised reasoning. These findings motivate analysis of \emph{internal} dynamics as a more reliable signal than tokenised CoT text.
+
+These analyses focus on \emph{outputs}---what CoT generates---rather than \emph{internal dynamics}---how the model's hidden states behave differently under CoT versus Direct prompting. Our work fills this gap by demonstrating that CoT induces qualitatively different trajectory geometries, characterised by higher-dimensional exploration followed by convergence, compared to the lower-dimensional ballistic trajectories of Direct answering.
+
+\subsection{Geometry of Neural Representations}
+
+Several threads of work study geometric properties of neural network representations. \citet{ansuini2019intrinsic} demonstrated that intrinsic dimensionality decreases across layers in deep networks. \citet{recanatesi2019dimensionality} connected representation dimensionality to task performance in recurrent networks. \citet{cohen2020separability} analysed manifold geometry in relation to classification capacity. \citet{razzhigaev2024your} showed that transformer hidden states are approximately linear between layers, providing structural context for our trajectory analysis.
+
+The concept closest to ours is the ``computation through dynamics'' perspective articulated by \citet{vyas2020computation} for biological neural populations, and the representational dynamics work of \citet{gurnee2023finding}, who demonstrate that language models represent space and time in interpretable geometric configurations. \citet{fumero2025latent} demonstrate that autoencoders implicitly define latent vector fields with attractors corresponding to memorised versus generalised representations---a framework that resonates with our empirical observation of ``Success Attractors'' in reasoning trajectories. \citet{marin2024hamiltonian} applies Hamiltonian mechanics to multi-hop reasoning in LLMs, mapping reasoning chains to phase spaces, though that work focuses on embedding-space analysis rather than token-resolved hidden state dynamics within layers.
+
+Our contribution extends this body of work from qualitative visualisation to quantitative characterisation via a comprehensive metric suite, and from layer-wise progression to token-wise trajectory analysis within each layer, applied specifically to multi-step reasoning under controlled prompting conditions.
+
+\subsection{Identified Gaps}
+
+Trajectory geometry addresses four critical gaps in the existing literature:
+
+\textbf{Gap 1: Lack of temporal analysis.} Existing methods analyse snapshots at individual layers or tokens. Multi-step reasoning involves temporal structure---exploration, convergence, commitment---that snapshot methods cannot capture.
+
+\textbf{Gap 2: Insufficient attention to regime-dependent computation.} Most interpretability work implicitly assumes universal computational substrates, seeking \emph{the} circuit or \emph{the} feature implementing a behaviour without considering whether distinct regimes might implement qualitatively different solutions. We provide evidence for strategies with opposite geometric signatures.
+
+\textbf{Gap 3: Limited understanding of commitment dynamics.} CoT research studies what models generate but does not address \emph{when} models commit to answers internally. We make commitment timing directly measurable via dimensional collapse detection.
+
+\textbf{Gap 4: Absence of process-level evaluation.} LLM benchmarks measure outcomes without assessing how answers were reached. Trajectory geometry enables evaluating the \emph{quality of the computational process} independently of its output.
+
+
+% ============================================================
+% 3. METHODS
+% ============================================================
+\section{Methods}
+\label{sec:methods}
+
+\subsection{Models}
+\label{sec:models}
+
+We analyse four transformer architectures spanning three distinct model families:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llcc}
+\toprule
+\textbf{Model} & \textbf{Family} & \textbf{Layers} & \textbf{Hidden Dim} \\
+\midrule
+Qwen2.5-0.5B & Qwen & 24 & 896 \\
+Qwen2.5-1.5B & Qwen & 28 & 1,536 \\
+Pythia-410m & GPT-NeoX & 24 & 1,024 \\
+Gemma~3~1B & Gemma & 26 & 1,152 \\
+\bottomrule
+\end{tabular}
+\caption{Model specifications. The four architectures span three distinct families with different attention mechanisms, positional encoding schemes, and training corpora.}
+\label{tab:models}
+\end{table}
+
+Qwen2.5-0.5B serves as the primary analysis model due to its limited capacity, which produces a natural distribution of successes and failures enabling meaningful group comparisons. The remaining models serve as cross-scale (Qwen-1.5B) and cross-architecture (Pythia-410m, Gemma~3~1B) replication targets.
+
+All models were accessed via Hugging Face and run on consumer hardware (AMD RX 5700 XT, 8GB VRAM with DirectML acceleration), establishing that the methodology is reproducible without specialised compute infrastructure.
+
+\subsection{Task}
+
+We use multi-step arithmetic problems of the form $(A \circ B) \diamond C$, where $A, B, C$ are integers and $\circ, \diamond \in \{+, -, \times\}$. For the difficulty-stratified analyses reported here, problems are binned by quartiles of absolute answer magnitude and labelled Small, Medium, Large, and Extra Large. The current Qwen-0.5B archive contains no literal $|$answer$| \geq 10{,}000$ examples, so these labels should be interpreted as relative magnitude bins rather than fixed numeric thresholds.
+
+The primary dataset comprises 300 problems for the Qwen-0.5B analyses (Experiments~8--18) and 400 problems for the cross-architecture replication (Experiments~19--21). Each problem is evaluated under two prompting conditions:
+
+\begin{itemize}[nosep, leftmargin=*]
+    \item \textbf{Direct:} ``\texttt{Calculate [problem]. Answer with just the number.}''
+    \item \textbf{Chain-of-Thought (CoT):} ``\texttt{Calculate [problem]. Think step by step.}''
+\end{itemize}
+
+This yields a $2 \times 2$ factorial design (Regime $\times$ Correctness) producing four groups:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llcc}
+\toprule
+\textbf{Group} & \textbf{Description} & \textbf{$n$ (0.5B)} & \textbf{$n$ (Gemma)} \\
+\midrule
+\groupone{} & Direct Fail & 247 & 338 \\
+\grouptwo{} & Direct Success & 53 & 62 \\
+\groupthree{} & CoT Fail & 77 & 59 \\
+\groupfour{} & CoT Success & 223 & 341 \\
+\bottomrule
+\end{tabular}
+\caption{Group sizes for primary (Qwen-0.5B, $N = 300$) and Gemma replication ($N = 400$) datasets.}
+\label{tab:groups}
+\end{table}
+
+\subsection{Hidden State Extraction}
+
+For each generation, we extracted residual stream activations $h_t^{(l)} \in \mathbb{R}^D$ at every layer $l$ for generated tokens, using greedy decoding (temperature $= 0$) to ensure reproducibility.
+
+In Experiments~8--13, analysis was restricted to the \textbf{first 32 tokens} to control for length confounds between regimes. In Experiments~14 onward, full trajectories (up to 200 tokens) were captured, with length-controlled analyses supplementing full-trajectory comparisons. For the cross-architecture experiments (19--21), an anti-contamination pipeline addressed hallucinated continuation text, including prompt engineering, generation stop sequences, post-generation text truncation, and boundary detection.
+
+For each layer $l$, the extraction produces a trajectory matrix $H^{(l)} \in \mathbb{R}^{T \times D}$ with rows $h_0^{(l)}, h_1^{(l)}, \ldots, h_{T-1}^{(l)}$. We define the step vectors as $\delta_t^{(l)} = h_{t+1}^{(l)} - h_t^{(l)}$.
+
+\subsection{Geometric Metric Suite}
+\label{sec:metric_suite}
+
+We computed metrics organised into seven families. Full mathematical definitions are provided in Appendix~\ref{app:metrics}; brief descriptions follow.
+
+\textbf{Kinematic metrics} (speed, turn angle, tortuosity, directional consistency, stabilisation rate) characterise the \emph{motion} of the hidden state through representation space.
+
+\textbf{Volumetric metrics} (radius of gyration $\Rg$, effective dimension $\Deff$, gyration anisotropy, drift-to-spread ratio) quantify the \emph{spatial extent} and \emph{shape} of the trajectory cloud.
+
+\textbf{Convergence metrics} (cosine slope to final state, distance slope to final state, early-late energy ratio, time-to-commit, commitment sharpness) measure how the trajectory \emph{approaches its terminal state}.
+
+\textbf{Diffusion metrics} (MSD exponent, spectral entropy) characterise the \emph{diffusion regime}---whether movement is sub-diffusive, Brownian, or super-diffusive.
+
+\textbf{Recurrence metrics} (recurrence rate, determinism, laminarity, trapping time) from Recurrence Quantification Analysis (RQA) measure \emph{revisitation patterns}.
+
+\textbf{Autocorrelation metrics} (velocity and directional autocorrelation at lags 1, 2, 4, 8) measure \emph{temporal persistence}.
+
+\textbf{Cross-layer metrics} (interlayer alignment) compare trajectory properties across the network depth hierarchy.
+
+The primary analyses (Experiments~8--14) used 33 metrics. The suite was subsequently formalised as the \texttt{TrajectoryMetrics} class (Experiment~18), standardising computation of 54 metrics across 12 families. Cross-architecture replication used a core subset of 10--28 metrics depending on the analysis.
+
+\subsection{Probability Cloud Regression (PCR)}
+\label{sec:pcr_methods}
+
+Geometric metrics computed from short token sequences ($T < 32$) exhibit substantial per-sample measurement noise. Standard logistic regression on these noisy features suffers from \emph{attenuation bias}: measurement noise compresses estimated regression coefficients toward zero, systematically underestimating predictive power.
+
+We introduce Probability Cloud Regression (PCR) to address this. The full mathematical derivation is in Appendix~\ref{app:pcr}; the procedure is:
+
+\begin{enumerate}[nosep, leftmargin=*]
+    \item \textbf{Uncertainty estimation.} For each trajectory, estimate per-metric uncertainty $\sigma_i$ from the standard deviation of that metric across layers of the same trajectory. This exploits the assumption that measurement noise varies across layers while the latent ``true'' geometric property is relatively stable.
+    \item \textbf{Denoising.} Project features onto a denoised manifold using the \texttt{CloudRegressor}, anchored to sample identity (leakage-free) rather than correctness labels.
+    \item \textbf{Corrected prediction.} Re-run logistic regression on denoised features to estimate corrected AUC.
+\end{enumerate}
+
+PCR is applied within-regime (e.g., predicting G4 vs.\ G3 using only CoT trajectories) to isolate the quality signal from the regime signal.
+
+\subsection{Statistical Analysis}
+
+All group comparisons report Cohen's $d$ as the primary effect size measure, computed as $d = (\bar{X}_1 - \bar{X}_2) / s_p$ where $s_p$ is the pooled standard deviation. We adopt $d$ over $p$-values because, given the large effect sizes observed ($d > 2$ for many comparisons), $p$-values are uniformly negligible and uninformative. All effects discussed as significant survive $p < 0.001$ via non-parametric permutation testing with 10,000 shuffles.
+
+Variance decomposition uses two-way ANOVA with factors Regime (Direct vs.\ CoT) and Correctness (Fail vs.\ Success), reporting partial $\eta^2$ as the variance explained by each factor.
+
+For predictive modelling, we trained $L_2$-regularised logistic regression classifiers evaluated via stratified 5-fold cross-validation, reporting area under the receiver operating characteristic curve (AUC-ROC).
+
+Analyses were conducted at every layer independently to preserve functional specialisation information.
+
+We did not apply family-wise error corrections across the full metric $\times$ layer $\times$ comparison space. With 33+ metrics, 24+ layers, and 6 pairwise group comparisons, conventional corrections would be overly conservative for an exploratory analysis establishing a new methodology. We control for false discoveries through: (a)~convergent evidence across metrics within the same family, (b)~consistency across layers, (c)~replication across difficulty bins and architectures, and (d)~predictive validation on held-out data.
+
+
+% ============================================================
+% 4. RESULTS
+% ============================================================
+\section{Results}
+\label{sec:results}
+
+We report eight core findings, progressing from single-model observations to cross-architecture invariance and variance decomposition.
+
+\subsection{Finding 1: Dimensional Collapse in Failure}
+\label{sec:finding1}
+
+The single most striking result is the catastrophic collapse of representational dimensionality in failed reasoning. At layer~14 of Qwen-0.5B, successful CoT trajectories (\groupfour) exhibit $\overline{D}_{\text{eff}} = 18.95$, while failed Direct trajectories (\groupone) show $\overline{D}_{\text{eff}} = 3.39$, a separation of Cohen's $d = 4.67$ ($n_{\text{G4}} = 223$, $n_{\text{G1}} = 247$). The radius of gyration shows comparable separation at the same layer: $\overline{R}_g = 12.94$ for \groupfour{} versus $\overline{R}_g = 9.20$ for \groupone{} (Cohen's $d = 4.03$).
+
+To contextualise: in psychological research, $d = 0.2$ is ``small,'' $d = 0.5$ ``medium,'' and $d = 0.8$ ``large.'' We routinely observe effects of $d > 4$. The distributions barely overlap.
+
+This collapse is not merely an artefact of prompting condition, but neither is effective dimension a universal success marker. Within the CoT regime alone, the layer~12 contrast between \groupfour{} and \groupthree{} is modest and reversed ($d \approx -0.40$), underscoring that success geometry must be analysed conditionally on regime.
+
+The effect is consistent across layers, with strongest separation in the middle layers (10--16) where semantic processing concentrates.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\columnwidth]{figures_v2/fig1_dimensional_collapse.pdf}
+\caption{Effective dimension ($\Deff$) across layers for all four groups in Qwen-0.5B ($N = 300$). Failed Direct trajectories (\groupone) collapse to 3.39 dimensions while successful CoT trajectories (\groupfour) maintain 18.95 dimensions at layer~14 (Cohen's $d = 4.67$).}
+\label{fig:dim_collapse}
+\end{figure}
+
+\subsection{Finding 2: Regime-Relative Success Geometry}
+\label{sec:finding2}
+
+There is no universal ``good trajectory.'' The geometric signature of success \emph{reverses sign} depending on the prompting regime.
+
+When we compare success to failure within each regime (\grouptwo{} vs.\ \groupone{} for Direct; \groupfour{} vs.\ \groupthree{} for CoT), we find that 10 or more of the analysed metrics exhibit opposite-sign effect sizes:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Metric} & \textbf{Direct} & \textbf{CoT} & \textbf{Flip?} \\
+ & ($d$: G2--G1) & ($d$: G4--G3) & \\
+\midrule
+Speed & $+2.10$ & $-0.87$ & Yes \\
+$R_g$ & $+2.16$ & $-1.21$ & Yes \\
+$D_{\text{eff}}$ & $+2.09$ & $-0.95$ & Yes \\
+Dir.\ consistency & $+1.85$ & $-1.10$ & Yes \\
+Cos.\ to run.\ mean & $-1.42$ & $+1.22$ & Yes \\
+Tortuosity & $-2.05$ & $+0.78$ & Yes \\
+\midrule
+Distance slope & $-1.90$ & $-1.53$ & No \\
+Stabilisation rate & $-1.65$ & $-0.92$ & No \\
+\bottomrule
+\end{tabular}
+\caption{Regime polarity of representative metrics in Qwen-0.5B. ``Flip'' indicates the metric predicts success in one regime and failure in the other. Effect sizes at peak layer.}
+\label{tab:polarity}
+\end{table}
+
+\textbf{Direct success} (retrieval) is characterised by high speed, large spatial extent, high directional consistency, and early convergence. The model moves ballistically toward the answer. \textbf{CoT success} (deliberation) is characterised by lower speed, smaller spatial extent relative to CoT failure, lower directional consistency, and higher coherence with accumulated context.
+
+A subset of metrics are \textbf{universal success indicators}: distance-to-final slope and stabilisation rate predict success in both regimes, capturing general computational quality independent of strategy.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\columnwidth]{figures_v2/fig2_regime_polarity_heatmap.pdf}
+\caption{Regime polarity of geometric metrics across layers. Left: within-Direct success effects ($d$: G2--G1). Right: within-CoT success effects ($d$: G4--G3). Metrics exhibiting sign reversal between regimes are highlighted, demonstrating that ``good geometry'' is regime-dependent.}
+\label{fig:regime_polarity}
+\end{figure}
+
+\subsection{Finding 3: Difficulty-Stratified Geometric Expansion}
+\label{sec:finding3}
+
+Geometric separation remains large across difficulty strata, but the local archive does not support the earlier monotonic threshold-based wording. In the current workspace, the Small/Medium/Large/Extra Large labels correspond to quartiles of absolute answer magnitude, and the peak \groupfour{} versus \groupone{} effect sizes for radius of gyration are:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Difficulty Bin} & \textbf{Peak $d$ ($R_g$)} & \textbf{Layer} \\
+\midrule
+Small & $7.75$ & 0 \\
+Medium & $7.18$ & 2 \\
+Large & $5.08$ & 24 \\
+Extra Large & $4.15$ & 1 \\
+\bottomrule
+\end{tabular}
+\caption{Effect size for $\Rg$ (\groupfour{} vs.\ \groupone{}) by quartile-defined answer-magnitude bin in the local Qwen-0.5B archive.}
+\label{tab:difficulty}
+\end{table}
+
+All four bins still show unusually large separations, supporting a \textbf{resource-rational} interpretation in which representational volume expands with computational demand, but the current local archive supports a difficulty-stratified effect rather than a clean monotonic scaling law.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\columnwidth]{figures_v2/fig3_difficulty_scaling.pdf}
+\caption{Peak Cohen's $d$ for radius of gyration ($R_g$) separating \groupfour{} from \groupone{} across quartile-defined answer-magnitude bins in the local Qwen-0.5B archive. All bins show large effects, but the local audit does not support the earlier monotonic threshold-based claim.}
+\label{fig:difficulty}
+\end{figure}
+
+\subsection{Finding 4: Failure Subtypes}
+\label{sec:finding4}
+
+Failures are not monolithic. Unsupervised $K$-means clustering ($k = 2$) of CoT failure trajectories (\groupthree) at layer~13 reveals structurally distinct subtypes:
+
+\textbf{Subtype A: Collapsed Failure.} Low $\Deff$, low $\Rg$, high directional consistency. These trajectories are metrically indistinguishable from Direct answers (\groupone). Interpretation: premature optimisation or ``giving up.''
+
+\textbf{Subtype B: Wandering Failure.} High $\Deff$ (often higher than CoT successes), high $\Rg$, but negative convergence slope. The model searches actively but drifts without committing. Interpretation: active confusion.
+
+This distinction is refined by the Position Index analysis (Finding~7): collapsed failures never enter the CoT regime attractor, while wandering failures enter the CoT manifold but fail to converge on the success centroid.
+
+\subsection{Finding 5: Commitment Phase Transitions}
+\label{sec:finding5}
+
+We define \textbf{time-to-commit} ($t_c$) as the trajectory-index position returned by the sliding-window $\Rg$ drop method (width~6, stride~2). Successful Direct answers (\grouptwo) commit earlier than successful CoT answers (\groupfour): in the local Qwen-0.5B archive, \grouptwo{} has mean/median $t_c = 12.46/14$, while \groupfour{} has mean/median $t_c = 40.26/41$. Aggregated by regime, Direct trajectories have mean/median $t_c = 14.32/17$ and CoT trajectories have mean/median $t_c = 40.01/39$.
+
+The \textbf{commitment sharpness} metric achieves a cross-architecture aggregate Cohen's $d = 9.83$ and appears in both arithmetic and empathy-task contexts (Experiment~20), suggesting it may be a domain-general marker of computational commitment.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\columnwidth]{figures_v2/fig5_commitment_dynamics.pdf}
+\caption{Commitment dynamics in Qwen-0.5B. Left: sliding-window $\Rg$ traces for the four groups with commitment points marked. Right: the local $t_c$ distributions by regime, showing earlier commitment for Direct trajectories than for CoT trajectories under the archived window-6, stride-2 definition.}
+\label{fig:commitment_dynamics}
+\end{figure}
+
+\textbf{Basis invariance.} A critical robustness check shows that commitment timing is robust to linear dimensionality reduction but not perfectly invariant across all bases. Using Gemma~3~1B basis comparisons, the informative nontrivial CoT subset ($N = 100$) yields Pearson $r = 0.918$ between raw residual-stream $t_c$ and PCA-16 $t_c$, but only $r = 0.576$ between raw residual-stream $t_c$ and SAE-16k $t_c$. Commitment timing therefore survives coarse linear projection, while sparse nonlinear decompositions encode partially different structure.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\columnwidth]{figures_v2/fig6_basis_invariance.pdf}
+\caption{Basis robustness of commitment timing on Gemma~3~1B. On the 100 nontrivial CoT trajectories, Pearson correlation is $r = 0.918$ for raw versus PCA-16 and $r = 0.576$ for raw versus SAE-16k. Commitment timing is robust to linear dimensionality reduction but diverges under sparse nonlinear decomposition.}
+\label{fig:basis_invariance}
+\end{figure}
+
+\subsection{Finding 6: Predictive Power of Geometry}
+\label{sec:finding6}
+
+Using $L_2$-regularised logistic regression at layer~13 of Qwen-0.5B:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llc}
+\toprule
+\textbf{Regime} & \textbf{Predictor} & \textbf{AUC (5-fold)} \\
+\midrule
+\multirow{3}{*}{Direct (G2 vs G1)} & Length only & $0.822 \pm 0.069$ \\
+ & Geometry only & $0.955 \pm 0.029$ \\
+ & Combined & $0.972 \pm 0.029$ \\
+\midrule
+CoT (G4 vs G3) & Geometry only & $0.823 \pm 0.044$ \\
+\bottomrule
+\end{tabular}
+\caption{Predictive AUC in Qwen-0.5B from a layer-13 local audit using the 10-feature geometry set on complete-case rows. Geometry strongly outperforms length alone for Direct prompting, and the combined model adds a modest further gain.}
+\label{tab:auc_primary}
+\end{table}
+
+For Direct prompting, geometry strongly outperforms length alone and the combined model adds a modest further gain. For CoT, geometry remains predictive but weaker than in the Direct regime.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\columnwidth]{figures_v2/fig7_predictive_synthesis.pdf}
+\caption{Predictive synthesis on Gemma~3~1B (EXP-21F). Layer-resolved predictive performance for geometry-only, SAE-only, and fused models in the Direct and CoT regimes.}
+\label{fig:predictive_synthesis}
+\end{figure}
+
+\subsection{Finding 7: Regime-Quality Variance Decomposition and PCR}
+\label{sec:finding7}
+
+A two-way ANOVA (Regime $\times$ Correctness) reveals the quantitative dominance of regime effects:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{0.48\columnwidth}cc}
+\toprule
+\textbf{Quantity} & \textbf{Value} & \textbf{Interpretation} \\
+\midrule
+Mean regime $\eta^2$ (all metrics, all layers) & $26.88\%$ & Average share of total variance across the full Qwen audit \\
+Mean regime $\eta^2$ (all metrics, layers~10--16) & $27.78\%$ & Peak-layer average across all metrics \\
+Regime share of explained variance (six regime-sensitive metrics, layers~10--16) & $74.58\%$ & Speed, $\Rg$, $\Deff$, tortuosity, directional consistency, MSD exponent \\
+\bottomrule
+\end{tabular}
+\caption{Variance decomposition summary for geometric metrics in Qwen-0.5B. The first two rows report raw mean regime $\eta^2$; the final row reports regime's share of explained variance under the conditioned six-metric, peak-layer view.}
+\label{tab:anova}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\columnwidth]{figures_v2/fig8_variance_decomposition.pdf}
+\caption{Peak-layer variance decomposition across the displayed Qwen-0.5B metrics. Each bar shows regime, quality, interaction, and residual contributions at the layer where explained variance is maximal for that metric. Regime dominates the most regime-sensitive metrics, but not 80--85\% of total variance across the full audit.}
+\label{fig:variance_decomposition}
+\end{figure}
+
+\emph{What earlier analyses attributed to ``success geometry'' was predominantly regime geometry.} The correct statement is conditional: averaged across all metrics at peak layers, regime accounts for about 27.8\% of total variance, and among the six most regime-sensitive metrics it explains 74.6\% of explained variance at layers~10--16. The genuine quality signal is real, but it must be estimated within regime rather than from pooled cross-group contrasts.
+
+\textbf{PCR denoising} reveals that even the within-regime signal is underestimated. Applying PCR to Qwen-0.5B within the CoT regime:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Layer} & \textbf{Raw AUC} & \textbf{PCR AUC} & \textbf{Gain} \\
+\midrule
+0 & 0.659 & 0.778 & $+0.119$ \\
+5 & 0.700 & 0.779 & $+0.079$ \\
+16 & 0.799 & 0.779 & $-0.020$ \\
+\bottomrule
+\end{tabular}
+\caption{PCR denoising (Qwen-0.5B, within-CoT). Early layers show dramatic gains.}
+\label{tab:pcr_qwen}
+\end{table}
+
+The Layer~0 gain of $+0.119$ demonstrates that \textbf{proto-attractors form in the earliest layer of the network}.
+
+\textbf{G3 Position Index.} CoT failures (\groupthree) sit at PI~$\approx 0.033$ on the G1--G4 axis in aggregate. But layer-resolved analysis reveals G3 trajectories enter the CoT regime attractor in early layers (PI~$\approx 1.0$) before collapsing back. CoT failure is thus a \emph{commitment failure}, not a regime-entry failure.
+
+\subsection{Finding 8: Cross-Architecture Invariance}
+\label{sec:finding8}
+
+Nineteen geometric signatures hold across Qwen-0.5B, Qwen-1.5B, and Pythia-410m, and the core pattern replicates on Gemma~3~1B:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metric} & \textbf{Aggregate $d$} & \textbf{Best Single} \\
+\midrule
+Phase count & 31.66 & Pythia L23: $d = 70.11$ \\
+$R_g$ & 13.99 & Qwen-1.5B L20: $d = 11.14$ \\
+$D_{\text{eff}}$ & 12.01 & --- \\
+Commit.\ sharpness & 9.83 & --- \\
+Tortuosity & 6.93 & --- \\
+Dir.\ consistency & 6.45 & --- \\
+\bottomrule
+\end{tabular}
+\caption{Top architecture-invariant signatures (G4 vs G1, aggregate across Qwen-0.5B, 1.5B, Pythia-410m).}
+\label{tab:invariant}
+\end{table}
+
+Gemma~3~1B (Experiment~21A, $N = 400$) reproduces the regime-relativity pattern with within-regime AUCs of 0.78--0.91 depending on layer and regime, matching prior Qwen results.
+
+\textbf{Architecture-specific variation.} While regime-relativity is invariant, the ``direction'' of the success signature relative to the dominant failure mode is model-dependent. Qwen-0.5B's primary failure mode is collapse (success = expansion); Qwen-1.5B and Pythia-410m's primary failure mode is wandering (success = compression). This suggests a \textbf{Goldilocks interpretation}: success is controlled expansion, distinct from the extremes of collapse and wandering.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.98\textwidth]{figures_v2/fig4_cross_architecture.pdf}
+\caption{Cross-architecture invariance of regime-dependent geometry. Layer-resolved effect sizes for four representative metrics across all four architectures. The regime-relativity pattern (opposite-sign within-regime effects) is architecturally invariant, while peak signal layers shift proportionally with network depth.}
+\label{fig:cross_arch}
+\end{figure*}
+
+
+% ============================================================
+% 5. LAYER-WISE COMPUTATIONAL HIERARCHY
+% ============================================================
+\section{Layer-Wise Computational Hierarchy}
+\label{sec:layers}
+
+Different geometric properties peak at different network depths, revealing a functional hierarchy:
+
+\textbf{Early layers (0--7): Regime detection.} Metrics distinguishing Direct from CoT processing achieve strongest separation here. By layer~7, the computational regime is identifiable with $d > 6$. PCR confirms proto-attractor formation at Layer~0.
+
+\textbf{Middle layers (10--16): Success prediction.} Within-regime success discrimination peaks here (mean $|d| \approx 1.37$).
+
+\textbf{Late layers (20--24): Commitment tracking.} Commitment timing and convergence diagnostics are most reliable here.
+
+This hierarchy is consistent across all four architectures, with layer boundaries shifting proportionally with network depth.
+
+
+% ============================================================
+% 6. DISCUSSION
+% ============================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{The Regime-Relativity Principle}
+
+Our central finding challenges a widespread implicit assumption in mechanistic interpretability: that there exists a single, universal notion of ``good computation.'' Circuit discovery seeks \emph{the} circuit; probing seeks \emph{the} direction; SAE analysis seeks \emph{the} features. These framings presuppose that successful computation has a unique structural signature.
+
+Regime-relativity demonstrates this assumption is false at the level of trajectory geometry. What makes Direct retrieval succeed is what makes CoT reasoning fail, and vice versa.
+
+The variance decomposition quantifies this, but only under the correct conditioning: regime contributes about 27.8\% of total variance when averaged across all metrics at peak layers, and 74.6\% of explained variance among the six most regime-sensitive metrics at layers~10--16. This means much of what pooled cross-group analyses attributed to ``success geometry'' was measuring which regime was active. The genuine quality signal is recoverable (within-CoT geometry AUC $= 0.823 \pm 0.044$ in the local layer-13 audit) but requires regime-conditional analysis.
+
+The practical architecture we recommend is a two-stage pipeline: (1)~regime classification using early-layer metrics ($d > 6$, achievable within 8--10 tokens), followed by (2)~regime-specific quality prediction using middle-layer metrics.
+
+\subsection{CoT as Geometric Expansion and Constrained Search}
+
+CoT does not simply ``add tokens''---it fundamentally restructures internal computation. Under CoT, the trajectory expands into higher-dimensional space, this expansion is constrained (each step builds coherently on accumulated context), the trajectory eventually commits (a measurable phase transition), and this expansion is calibrated (harder problems induce proportionally more expansion).
+
+This pattern is consistent with the theoretical predictions of \citet{feng2024towards} and \citet{merrill2024expressive}. Our contribution demonstrates that these predictions manifest as measurable geometric phenomena in hidden states.
+
+The faithfulness debate receives indirect evidence: geometric signatures of successful reasoning are detectable regardless of what the model writes in its CoT text. This suggests internal computation has structure beyond what verbalised reasoning captures, consistent with the ``faithfulness by necessity'' findings of \citet{korbak2025faithfulness}.
+
+\subsection{The Success Attractor and Proto-Attractor Formation}
+
+Successful reasoning trajectories converge onto a tight, reproducible geometric manifold: the \textbf{Success Attractor}. This attractor is architecturally invariant, distinct from the CoT Regime Attractor (G3 failures enter the regime but never reach the Success Centroid), and scaled by model capacity.
+
+PCR reveals proto-attractors at Layer~0, resonating with \citet{fumero2025latent}, who demonstrate that autoencoder attractors encode memorisation vs.\ generalisation. The proto-attractor at Layer~0 suggests that success/failure trajectory differentiation is seeded before any layer-specific processing occurs.
+
+\subsection{Implications for Safety and Monitoring}
+
+Trajectory geometry enables real-time correctness prediction from early tokens, without reading output text. The failure taxonomy distinguishes collapsed failures (confident but wrong) from wandering failures (unfocused exploration). Unlike text-based monitoring, trajectory geometry operates on internal representations that are harder to manipulate through output formatting.
+
+\subsection{The Causal Gap}
+\label{sec:causal_gap}
+
+Our findings are correlational. This distinction has concrete implications:
+
+\textbf{Directly supported:} Monitoring (detecting failure-like patterns during generation); reranking (selecting among candidate generations); computational phenotyping (characterising how different models or prompts alter reasoning geometry).
+
+\textbf{Requiring causal validation:} Activation steering (redirecting failing trajectories); geometric regularisation (training toward success-like geometry); interventional debugging. These require activation patching experiments we have not performed.
+
+The SAE analysis (Appendix~\ref{app:sae}) provides a constraining result: no sparse success-exclusive commitment circuit was identified, suggesting commitment is a distributed phase transition rather than a locatable circuit event. This reinforces that causal intervention is a non-trivial open problem.
+
+
+% ============================================================
+% 7. LIMITATIONS
+% ============================================================
+\section{Limitations}
+\label{sec:limitations}
+
+\textbf{Task specificity.} All experiments use multi-step arithmetic. While this provides unambiguous ground truth, geometric patterns may differ for other reasoning domains. An exploratory domain-transfer experiment (Experiment~20) found that geometric separation between task types was primarily driven by prose domain rather than the target cognitive construct, demonstrating that factorial disambiguation is required for domain-transfer claims.
+
+\textbf{Model scale.} All models are under 2B parameters. The limited capacity may produce artificially stark geometric contrasts. Our scale range (410M--1.5B) spans a 3.6$\times$ range with consistent results, but frontier-scale validation is needed.
+
+\textbf{Decoding strategy.} All generations use greedy decoding. Sampling-based decoding might produce different trajectory distributions.
+
+\textbf{Content confounds.} Despite length controls, CoT and Direct responses differ in content within the same window. We mitigate this by showing that geometry predicts success \emph{within} CoT, but cross-regime comparisons carry this caveat.
+
+\textbf{PCR novelty.} PCR is introduced in this paper with no independent validation. We provide full derivations and code for external verification.
+
+
+% ============================================================
+% 8. FUTURE WORK
+% ============================================================
+\section{Future Directions}
+\label{sec:future}
+
+\textbf{Causal validation via Perturbation Spectroscopy.} Preliminary causal validation using sparse autoencoder feature ablation (Perturbation Spectroscopy; detailed in a forthcoming companion paper) reveals that causal feature maps are themselves regime-dependent, extending the Regime-Relativity Principle from geometric signatures to causal mechanisms. In a 5-phase perturbation screen on Gemma~3~1B, a feature previously identified as a causal controller of carry arithmetic (Feature~6340; $\Delta_{\text{carry}} = -30$pp at $\alpha = 0.25$, infinite specificity ratio over random controls) produced \emph{zero} effect when task complexity increased from single-digit to multi-digit carry problems ($\Delta_{\text{carry}} = 0.0$pp). Unsupervised clustering of geometric perturbation profiles across 22 features cleanly separated ``Benders'' (localised logic disruption, high layer-wise variance) from ``Shatterers'' (global infrastructure collapse, uniform propagation), validating trajectory geometry as a richer readout than accuracy alone for characterising failure modes.
+
+\textbf{Multi-regime expansion.} Testing whether distinct prompting strategies (backward induction, constraint satisfaction, analogical mapping, self-verification) produce geometrically distinguishable trajectory families, extending the two-regime analysis to a richer computational taxonomy.
+
+\textbf{Frontier scaling.} Evaluation at 10B+ parameters to clarify whether geometric signatures persist at frontier scale.
+
+\textbf{Domain transfer.} Applying trajectory geometry to non-arithmetic tasks with the factorial disambiguation methodology from Experiment~20.
+
+\textbf{Integration with circuit discovery.} Identifying which attention heads and MLP sublayers drive the explore-then-commit transition.
+
+\textbf{Real-time monitoring.} A prototype system computing geometric features during generation and flagging anomalous trajectories. The strong raw-vs-PCA alignment of commitment timing (Section~\ref{sec:finding5}) suggests that monitoring can operate on low-dimensional linear projections with limited signal loss, though sparse nonlinear bases require separate calibration.
+
+
+% ============================================================
+% 9. CONCLUSION
+% ============================================================
+\section{Conclusion}
+
+We have demonstrated that transformer hidden state trajectories during reasoning encode rich geometric information about computational success, strategy, and difficulty. Through analysis of multi-step arithmetic across two prompting regimes in four transformer architectures from three model families (410M--1.5B parameters), we established eight core findings centred on the \textbf{Regime-Relativity Principle}: there is no universal ``good geometry'' for reasoning.
+
+Regime dominates geometric variance, but the correct statement is conditional: it accounts for 27.8\% of total variance when averaged across all metrics at peak layers, and for 74.6\% of explained variance among the six most regime-sensitive metrics at layers~10--16. Nineteen geometric signatures are invariant across Qwen, Pythia, and Gemma families.
+
+We have been explicit about the causal gap: our findings support monitoring and reranking directly but require additional validation before intervention applications can be claimed. Trajectory geometry complements existing interpretability methods by providing the temporal, dynamic dimension that circuit discovery, feature analysis, and probing lack.
+
+We make metric definitions, analysis code, and datasets available at \url{https://github.com/ksoliman/trajectory-geometry} to encourage replication and extension.
+
+
+% ============================================================
+% ACKNOWLEDGEMENTS
+% ============================================================
+\section*{Acknowledgements}
+
+This research was conducted independently using personal computing resources and open-source models. The author thanks the Qwen, EleutherAI, and Google DeepMind teams for releasing model weights, and the Hugging Face community for inference infrastructure.
+
+\textbf{AI Disclosure.} AI tools (Claude, Anthropic; Gemini, Google) were used for implementation support during analysis development, literature search assistance, and structural scaffolding of this manuscript. All experimental design decisions, theoretical contributions, interpretive frameworks, and analytical judgments are the author's own. Statistical analyses were independently verified against raw data. The full research history, including failed experiments and methodological pivots, is publicly available at \url{https://github.com/ksoliman/trajectory-geometry}.
+
+
+% ============================================================
+% REFERENCES
+% ============================================================
+\bibliographystyle{plainnat}
+
+\begin{thebibliography}{99}
+
+\bibitem[Ansuini et~al.(2019)]{ansuini2019intrinsic}
+Ansuini, A., Laio, A., Macke, J.~H., \& Zoccolan, D. (2019).
+\newblock Intrinsic dimension of data representations in deep neural networks.
+\newblock In \emph{NeurIPS}.
+
+\bibitem[Belinkov(2022)]{belinkov2022probing}
+Belinkov, Y. (2022).
+\newblock Probing classifiers: Promises, shortcomings, and advances.
+\newblock \emph{Computational Linguistics}, 48(1):207--219.
+
+\bibitem[Biderman et~al.(2023)]{biderman2023pythia}
+Biderman, S., Schoelkopf, H., Anthony, Q., Bradley, H., O'Brien, K., Hallahan, E., \ldots \& Leahy, L. (2023).
+\newblock Pythia: A suite for analyzing large language models across training and scaling.
+\newblock In \emph{ICML}.
+
+\bibitem[Bricken et~al.(2023)]{bricken2023monosemanticity}
+Bricken, T., Templeton, A., Batson, J., Chen, B., Jermyn, A., Conerly, T., \ldots \& Olah, C. (2023).
+\newblock Towards monosemanticity: Decomposing language models with dictionary learning.
+\newblock \emph{Transformer Circuits Thread}.
+
+\bibitem[Cohen et~al.(2020)]{cohen2020separability}
+Cohen, U., Chung, S., Lee, D.~D., \& Sompolinsky, H. (2020).
+\newblock Separability and geometry of object manifolds in deep neural networks.
+\newblock \emph{Nature Communications}, 11(1):746.
+
+\bibitem[Conmy et~al.(2023)]{conmy2023acdc}
+Conmy, A., Mavor-Parker, A.~N., Lynch, A., Heimersheim, S., \& Garriga-Alonso, A. (2023).
+\newblock Towards automated circuit discovery for mechanistic interpretability.
+\newblock In \emph{NeurIPS}.
+
+\bibitem[Cunningham \& Yu(2014)]{cunningham2014dimensionality}
+Cunningham, J.~P., \& Yu, B.~M. (2014).
+\newblock Dimensionality reduction for large-scale neural recordings.
+\newblock \emph{Nature Neuroscience}, 17(11):1500--1509.
+
+\bibitem[Cunningham et~al.(2023)]{cunningham2023sparse}
+Cunningham, H., Ewart, A., Riggs, L., Huben, R., \& Sharkey, L. (2023).
+\newblock Sparse autoencoders find highly interpretable features in language models.
+\newblock In \emph{ICLR}.
+
+\bibitem[Feng et~al.(2024)]{feng2024towards}
+Feng, G., Zhang, B., Gu, Y., Ye, H., He, D., \& Wang, L. (2024).
+\newblock Towards revealing the mystery behind chain of thought: A theoretical perspective.
+\newblock In \emph{NeurIPS}.
+
+\bibitem[Fumero et~al.(2025)]{fumero2025latent}
+Fumero, M., Wenzel, F., Zietlow, D., \& Locatello, F. (2025).
+\newblock Navigating the latent space dynamics of neural models.
+\newblock \emph{arXiv preprint arXiv:2505.22785}.
+
+\bibitem[Gallego et~al.(2017)]{gallego2017neural}
+Gallego, J.~A., Perich, M.~G., Miller, L.~E., \& Solla, S.~A. (2017).
+\newblock Neural manifolds for the control of movement.
+\newblock \emph{Neuron}, 94(5):978--984.
+
+\bibitem[Gemma Team(2025)]{gemma2025gemma3}
+Gemma Team. (2025).
+\newblock Gemma 3 technical report.
+\newblock \emph{arXiv preprint arXiv:2503.19786}.
+
+\bibitem[Goyal et~al.(2024)]{goyal2024think}
+Goyal, S., Ji, Z., Rawat, A.~S., Menon, A.~K., Kumar, S., \& Narang, V. (2024).
+\newblock Think before you speak: Training language models with pause tokens.
+\newblock In \emph{ICLR}.
+
+\bibitem[Gurnee \& Tegmark(2023)]{gurnee2023finding}
+Gurnee, W., \& Tegmark, M. (2023).
+\newblock Language models represent space and time.
+\newblock In \emph{ICLR}.
+
+\bibitem[Korbak et~al.(2025)]{korbak2025faithfulness}
+Korbak, T., et~al. (2025).
+\newblock Measuring faithfulness in chain-of-thought reasoning at scale.
+\newblock \emph{arXiv preprint}.
+% NOTE: Verify exact arXiv ID before submission. The "faithfulness by necessity"
+% finding may also appear in Anthropic (2025) arXiv:2505.05410.
+
+\bibitem[Lanham et~al.(2023)]{lanham2023measuring}
+Lanham, T., Chen, A., Radhakrishnan, A., Steiner, B., Denison, C., Hernandez, D., \ldots \& Perez, E. (2023).
+\newblock Measuring faithfulness in chain-of-thought reasoning.
+\newblock \emph{arXiv preprint arXiv:2307.13702}.
+
+\bibitem[Li et~al.(2024)]{li2024inference}
+Li, K., Patel, O., Vi\'{e}gas, F., Pfister, H., \& Wattenberg, M. (2024).
+\newblock Inference-time intervention: Eliciting truthful answers from a language model.
+\newblock In \emph{NeurIPS}.
+
+\bibitem[Mar\'{\i}n(2024)]{marin2024hamiltonian}
+Mar\'{\i}n, J. (2024).
+\newblock Geometric analysis of reasoning trajectories: A phase space approach to understanding valid and invalid multi-hop reasoning in LLMs.
+\newblock \emph{arXiv preprint arXiv:2410.04415}.
+
+\bibitem[Merrill \& Sabharwal(2024)]{merrill2024expressive}
+Merrill, W., \& Sabharwal, A. (2024).
+\newblock The expressive power of transformers with chain of thought.
+\newblock In \emph{ICLR}.
+
+\bibitem[Mirtaheri \& Belkin(2025)]{mirtaheri2025motivated}
+Mirtaheri, M., \& Belkin, M. (2025).
+\newblock Detecting motivated reasoning in language models via hidden state analysis.
+\newblock \emph{arXiv preprint}.
+% NOTE: Verify exact arXiv ID before submission.
+
+\bibitem[Olsson et~al.(2022)]{olsson2022context}
+Olsson, C., Elhage, N., Nanda, N., Joseph, N., DasSarma, N., Henighan, T., \ldots \& Olah, C. (2022).
+\newblock In-context learning and induction heads.
+\newblock \emph{Transformer Circuits Thread}.
+
+\bibitem[Qwen Team(2025)]{qwen2025qwen25}
+Qwen Team. (2025).
+\newblock Qwen2.5 technical report.
+\newblock \emph{arXiv preprint arXiv:2412.15115}.
+
+\bibitem[Razzhigaev et~al.(2024)]{razzhigaev2024your}
+Razzhigaev, A., et~al. (2024).
+\newblock Your transformer is secretly linear.
+\newblock \emph{arXiv preprint arXiv:2405.12250}.
+
+\bibitem[Recanatesi et~al.(2019)]{recanatesi2019dimensionality}
+Recanatesi, S., Farrell, M., Advani, M., Moore, T., Lajoie, G., \& Bhatt, D. (2019).
+\newblock Dimensionality compression and expansion in deep neural networks.
+\newblock \emph{arXiv preprint arXiv:1906.00443}.
+
+\bibitem[Soliman(2026)]{soliman2026repo}
+Soliman, K. (2026).
+\newblock Trajectory Geometry: Research history and analysis code.
+\newblock \url{https://github.com/ksoliman/trajectory-geometry}.
+
+\bibitem[Syed et~al.(2023)]{syed2023attribution}
+Syed, A., Rager, C., \& Conmy, A. (2023).
+\newblock Attribution patching outperforms automated circuit discovery.
+\newblock \emph{arXiv preprint arXiv:2310.10348}.
+
+\bibitem[Templeton et~al.(2024)]{templeton2024scaling}
+Templeton, A., Conerly, T., Marcus, J., et~al. (2024).
+\newblock Scaling monosemanticity: Extracting interpretable features from Claude 3 Sonnet.
+\newblock \emph{Transformer Circuits Thread}.
+
+\bibitem[Turner et~al.(2023)]{turner2023activation}
+Turner, A., Thiergart, L., Udell, D., Leech, G., Mini, U., \& MacDiarmid, M. (2023).
+\newblock Activation addition: Steering language models without optimization.
+\newblock \emph{arXiv preprint arXiv:2308.10248}.
+
+\bibitem[Turpin et~al.(2024)]{turpin2024language}
+Turpin, M., Michael, J., Perez, E., \& Bowman, S.~R. (2024).
+\newblock Language models don't always say what they think: Unfaithful explanations in chain-of-thought prompting.
+\newblock In \emph{NeurIPS}.
+
+\bibitem[Vyas et~al.(2020)]{vyas2020computation}
+Vyas, S., Golub, M.~D., Sussillo, D., \& Shenoy, K.~V. (2020).
+\newblock Computation through neural population dynamics.
+\newblock \emph{Annual Review of Neuroscience}, 43:249--275.
+
+\bibitem[Wang et~al.(2022)]{wang2022interpretability}
+Wang, K., Variengien, A., Conmy, A., Shlegeris, B., \& Steinhardt, J. (2022).
+\newblock Interpretability in the wild: a circuit for indirect object identification in GPT-2 Small.
+\newblock In \emph{ICLR}.
+
+\bibitem[Wei et~al.(2022)]{wei2022chain}
+Wei, J., Wang, X., Schuurmans, D., et~al. (2022).
+\newblock Chain-of-thought prompting elicits reasoning in large language models.
+\newblock In \emph{NeurIPS}.
+
+\bibitem[Zou et~al.(2023)]{zou2023representation}
+Zou, A., Phan, L., Chen, S., et~al. (2023).
+\newblock Representation engineering: A top-down approach to AI transparency.
+\newblock \emph{arXiv preprint arXiv:2310.01405}.
+
+\end{thebibliography}
+
+
+% ============================================================
+% APPENDICES
+% ============================================================
+\appendix
+
+\section{Complete Metric Definitions}
+\label{app:metrics}
+
+Let $H^{(l)} = [h_0, h_1, \ldots, h_{T-1}] \in \mathbb{R}^{T \times D}$ denote the hidden state trajectory at layer $l$, where each $h_t \in \mathbb{R}^D$. Define the step vectors $\delta_t = h_{t+1} - h_t$ and the normalised direction vectors $\hat{\delta}_t = \delta_t / \|\delta_t\|_2$.
+
+\subsection{Kinematic Metrics}
+
+\textbf{Speed.} Mean L2 norm of successive hidden state differences:
+\begin{equation}
+\text{Speed} = \frac{1}{T-1} \sum_{t=0}^{T-2} \|\delta_t\|_2
+\end{equation}
+
+\textbf{Turn Angle.} Mean angle between successive step vectors:
+\begin{equation}
+\text{Turn Angle} = \frac{1}{T-2} \sum_{t=0}^{T-3} \arccos\left(\frac{\delta_t \cdot \delta_{t+1}}{\|\delta_t\| \, \|\delta_{t+1}\|}\right)
+\end{equation}
+
+\textbf{Tortuosity.} Ratio of net displacement to total path length:
+\begin{equation}
+\text{Tortuosity} = \frac{\|h_{T-1} - h_0\|}{\sum_{t=0}^{T-2} \|\delta_t\|}
+\end{equation}
+
+\textbf{Directional Consistency.}
+\begin{equation}
+\text{DC} = \left\|\frac{1}{T-1} \sum_{t=0}^{T-2} \hat{\delta}_t\right\|_2
+\end{equation}
+
+\textbf{Stabilisation Rate.} Slope of linear fit to step magnitudes:
+\begin{equation}
+\beta_{\text{stab}} \text{ from } \|\delta_t\| \sim \alpha + \beta_{\text{stab}} \cdot t
+\end{equation}
+
+\subsection{Volumetric Metrics}
+
+\textbf{Radius of Gyration.}
+\begin{equation}
+h_\mu = \frac{1}{T}\sum_{t=0}^{T-1} h_t, \qquad R_g = \sqrt{\frac{1}{T}\sum_{t=0}^{T-1}\|h_t - h_\mu\|^2}
+\label{eq:rg}
+\end{equation}
+
+\textbf{Effective Dimension.} Participation ratio of PCA eigenvalues over step vectors. Let $\lambda_i$ be the eigenvalues of the covariance matrix of $\{\delta_t\}$:
+\begin{equation}
+D_{\text{eff}} = \frac{\left(\sum_i \lambda_i\right)^2}{\sum_i \lambda_i^2}
+\label{eq:deff}
+\end{equation}
+
+\textbf{Gyration Anisotropy.} $1 - H_{\text{norm}}(\sigma)$, where $H_{\text{norm}}$ is normalised spectral entropy of singular values of the centred trajectory matrix.
+
+\textbf{Drift-to-Spread Ratio.}
+\begin{equation}
+\text{D:S} = \frac{\|h_{T-1} - h_0\|}{R_g}
+\end{equation}
+
+\subsection{Convergence Metrics}
+
+\textbf{Cosine Slope to Final.} Slope of $\cos(h_t, h_{T-1})$ vs.\ $t$.
+
+\textbf{Distance Slope to Final.} Slope of $\|h_t - h_{T-1}\|$ vs.\ $t$.
+
+\textbf{Early-Late Energy Ratio.} Ratio of mean step magnitude in first half to second half.
+
+\textbf{Time-to-Commit.}
+\begin{equation}
+t_c = \underset{t}{\arg\max}\left(R_g^{(w)}(t) - R_g^{(w)}(t + s)\right)
+\end{equation}
+
+\textbf{Commitment Sharpness.}
+\begin{equation}
+\text{CS} = \max_t \left(R_g^{(w)}(t) - R_g^{(w)}(t+s)\right)
+\end{equation}
+
+\subsection{Diffusion Metrics}
+
+\textbf{MSD Exponent.}
+\begin{equation}
+\langle\|h_{t+\tau} - h_t\|^2\rangle \propto \tau^\alpha
+\end{equation}
+
+\textbf{Spectral Entropy.} Shannon entropy of normalised power spectral density of $\{|\delta_t|\}$.
+
+\subsection{Recurrence Metrics}
+
+Based on recurrence matrix $R_{i,j} = \Theta(\epsilon - \|h_i - h_j\|)$, $\epsilon$ at 10th percentile of pairwise distances:
+
+\textbf{Recurrence Rate.} $\text{RR} = \frac{1}{T^2}\sum_{i,j} R_{i,j}$.
+
+\textbf{Determinism.} Fraction of recurrence points in diagonal lines $\geq l_{\min}$.
+
+\textbf{Laminarity.} Fraction of recurrence points in vertical lines.
+
+\textbf{Trapping Time.} Mean length of vertical lines.
+
+\subsection{Autocorrelation Metrics}
+
+\textbf{Velocity Autocorrelation (lags 1, 2, 4, 8).}
+\begin{equation}
+\rho_v(k) = \text{corr}\left(\{|\delta_t|\}_{t=0}^{T-2-k}, \{|\delta_{t+k}|\}_{t=0}^{T-2-k}\right)
+\end{equation}
+
+\textbf{Directional Autocorrelation (lags 1, 2, 4, 8).} Correlation between cosines of successive direction vectors at lag $k$.
+
+\subsection{Cross-Layer Metrics}
+
+\textbf{Interlayer Alignment.}
+\begin{equation}
+\text{Align}^{(l)} = \frac{1}{T-1}\sum_{t=0}^{T-2} \cos\left(\delta_t^{(l)}, \delta_t^{(l+1)}\right)
+\end{equation}
+
+\subsection{Extended Metrics}
+
+\textbf{Cosine to Running Mean.} Cosine between $\delta_t$ and $\bar{\delta}_{0:t}$.
+
+\textbf{Cosine to Late Window.} Cosine between early steps and mean direction of final 8 tokens.
+
+\textbf{Mean Attractor Distance.} Mean distance to group-level attractor.
+
+\textbf{Cosine to Success Direction.} Cosine between step and mean initial-to-final direction.
+
+\textbf{Mean Step Surprisal.} Mean $-\log p(\text{token})$ from the model's logits.
+
+\textbf{Phase Count.} Number of direction reversals in sliding-window $\Rg$ derivative.
+
+
+% ============================================================
+\section{Negative Results and Failed Approaches}
+\label{app:negative}
+
+\textbf{Static operator signatures (Experiments 1--3).} API output embeddings (Experiment~1, Gemini \texttt{text-embedding-004}, $n = 500$) yielded AMI~$= 0.13$; open-weights hidden state warp vectors (Experiment~2) showed within-operator variance exceeding between-operator variance. Regime-mapping (Experiment~3) found topic confounds. These failures motivated the pivot to dynamics.
+
+\textbf{Cue-word triggering (Experiment~8$^\prime$).} Inserting ``Therefore'' or ``Wait'' did not alter trajectory geometry. Dynamics are emergent, not token-cued.
+
+\textbf{Capability floor (Experiment~9B).} TinyLlama-1.1B achieved 2/300 correct. Geometry requires minimum task capability.
+
+\textbf{Introspective self-monitoring (Experiment~10).} Self-reports correlated $r \approx 0.00$ with geometry. Internal geometry is not introspectively accessible.
+
+\textbf{Data corruption (Experiment~18B).} Pythia-70m hidden states exhibited incorrect dimensionality, establishing mandatory tensor shape validation.
+
+\textbf{Geometric orchestration (Experiments~4--5).} Heuristic orchestrator achieved +23.3\% accuracy (Experiment~4), but multi-pass prompting caused 0.5B model collapse (Experiment~5).
+
+
+% ============================================================
+\section{Probability Cloud Regression: Derivation}
+\label{app:pcr}
+
+\subsection{Motivation}
+
+Standard logistic regression assumes error-free predictors. With noisy geometric metrics, estimated coefficients suffer attenuation:
+
+\begin{equation}
+\hat{\beta} \approx \frac{\sigma_x^2}{\sigma_x^2 + \sigma_\epsilon^2} \cdot \beta_{\text{true}}
+\end{equation}
+
+This compresses estimated AUC toward 0.5, systematically underestimating predictive power.
+
+\subsection{Procedure}
+
+\textbf{Stage 1: Uncertainty estimation.} For each trajectory $i$ and metric $m$, estimate $\sigma_{i,m}$ as the standard deviation of metric $m$ across layers for that trajectory.
+
+\textbf{Stage 2: Denoising.} The \texttt{CloudRegressor} treats each observed value as noisy:
+
+\begin{equation}
+x_{i,m} = z_{i,m} + \epsilon_{i,m}, \quad \epsilon_{i,m} \sim \mathcal{N}(0, \sigma_{i,m}^2)
+\end{equation}
+
+The denoised estimate uses shrinkage toward the group mean:
+
+\begin{equation}
+\hat{z}_{i,m} = \bar{x}_m + \frac{\hat{\sigma}_{z,m}^2}{\hat{\sigma}_{z,m}^2 + \sigma_{i,m}^2}(x_{i,m} - \bar{x}_m)
+\end{equation}
+
+Denoising is anchored to sample identity, not labels, preventing leakage.
+
+\textbf{Stage 3: Corrected prediction.} Logistic regression on denoised features with identical cross-validation.
+
+\subsection{Validation}
+
+Three consistency checks: (1)~denoised AUC $\geq$ raw AUC; (2)~largest gains in early layers; (3)~consistency across architectures. All satisfied (Section~\ref{sec:finding7}).
+
+\subsection{Limitations}
+
+Cross-layer $\sigma$ estimation assumes layer-to-layer variation is noise rather than functional specialisation---approximately true for volumetric metrics but potentially violated for convergence metrics. Gaussian noise assumption is an approximation. PCR provides corrected \emph{estimates}, not ground truth.
+
+
+% ============================================================
+\section{Per-Architecture Detail}
+\label{app:architecture}
+
+\subsection{Accuracy by Difficulty}
+
+\begin{table*}[h]
+\centering
+\small
+\begin{tabular}{l|ccccc|ccccc}
+\toprule
+ & \multicolumn{5}{c|}{\textbf{CoT Accuracy (\%)}} & \multicolumn{5}{c}{\textbf{Direct Accuracy (\%)}} \\
+\textbf{Model} & US & S & M & L & Neg & US & S & M & L & Neg \\
+\midrule
+Qwen-0.5B & 100.0 & 50.0 & --- & --- & --- & --- & --- & --- & --- & --- \\
+Qwen-1.5B & 100.0 & 100.0 & --- & --- & --- & --- & --- & --- & --- & --- \\
+Pythia-410m & 25.0 & 0.0 & --- & --- & --- & --- & --- & --- & --- & --- \\
+Gemma~3~1B & 100.0 & 98.8 & 87.5 & 78.8 & 61.3 & 48.8 & 28.7 & 0.0 & 0.0 & 0.0 \\
+\bottomrule
+\end{tabular}
+\caption{Accuracy by difficulty bin. US = UltraSmall, S = Small, M = Medium, L = Large, Neg = Negative. Dashes = not reported in original experiment. Pythia-410m enabled by few-shot calibration.}
+\label{tab:accuracy_detail}
+\end{table*}
+
+\subsection{PCR Across Architectures}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llccc}
+\toprule
+\textbf{Model} & \textbf{Layer} & \textbf{Raw} & \textbf{PCR} & \textbf{Gain} \\
+\midrule
+\multirow{3}{*}{Qwen-0.5B} & 0 & 0.659 & 0.778 & +0.119 \\
+ & 5 & 0.700 & 0.779 & +0.079 \\
+ & 16 & 0.799 & 0.779 & $-$0.020 \\
+\midrule
+Qwen-1.5B & 26 & 0.74 & --- & --- \\
+\midrule
+Gemma~3~1B & 0 & 0.780 & 0.811 & +0.031 \\
+\bottomrule
+\end{tabular}
+\caption{PCR gains across architectures (within-CoT). Gemma gains are positive but smaller.}
+\label{tab:pcr_cross}
+\end{table}
+
+
+% ============================================================
+\section{SAE Constraining Analysis}
+\label{app:sae}
+
+Experiment~21B investigated whether the commitment phase transition corresponds to sparse success-exclusive SAE features. Using GemmaScope~2 \texttt{resid\_post\_all} SAEs at 16k width on Gemma~3~1B at Layer~24:
+
+\textbf{Design.} Features compared between \groupfour{} ($n = 341$) and \groupthree{} ($n = 59$) using Mann-Whitney~$U$ with Bonferroni correction across 2,143 active features.
+
+\textbf{Results.} Five features survived correction. All exhibited negative $d$ (failure-biased):
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrr}
+\toprule
+\textbf{Feature} & \textbf{$d$} & \textbf{Corr.\ $p$} \\
+\midrule
+5220 & $-0.720$ & 0.024 \\
+213 & $-0.703$ & 0.006 \\
+929 & $-0.638$ & 0.050 \\
+363 & $-0.614$ & 0.050 \\
+14523 & $-0.379$ & 0.003 \\
+\bottomrule
+\end{tabular}
+\caption{Bonferroni-significant SAE features. All failure-biased; zero success-exclusive features found.}
+\label{tab:sae}
+\end{table}
+
+Zero G4-exclusive features ($>$50\% G4, $<$10\% G3). Population statistics nearly identical: G3 mean 733.2 ($\pm$94.1) active features vs.\ G4 mean 714.4 ($\pm$85.3).
+
+\textbf{Interpretation.} No evidence for a sparse success-exclusive commitment circuit at the tested resolution. Commitment appears to involve a distributed phase transition rather than locatable circuit elements. This is a constraining result, not a definitive negative---higher-resolution SAEs or multi-token windows might reveal sparser structure.
+
+
+% ============================================================
+\section{Experimental Progression}
+\label{app:experiments}
+
+\begin{table*}[h]
+\centering
+\small
+\begin{tabular}{clp{7cm}l}
+\toprule
+\textbf{Exp} & \textbf{Phase} & \textbf{Key Contribution} & \textbf{Status} \\
+\midrule
+1--3 & I: Shapes & Static operator vectors fail; dynamics needed & Invalid \\
+4--5 & II: Orchestration & Geometric orchestration; capacity floor & Partial \\
+6--7 & II: Validation & Stricter validation; static approach dead end & Failed \\
+8 & III: Dynamics & Differential geometry metrics; 9 regimes & Breakthrough \\
+9 & III: Dynamics & Speed/curvature separates G4 vs G1 at $d > 3.0$ & Core \\
+9B & III: Capability & TinyLlama below capability floor & Negative \\
+10 & III: Introspection & Self-reports $r \approx 0.00$ with geometry & Negative \\
+11 & IV: Collapse & $\Deff$ 18.95 vs 3.39, $d = 4.67$ & Core \\
+12 & IV: Dynamics & Fractal dimension, explore$\to$commit & Core \\
+13 & IV: Prediction & Failure subtypes; Direct AUC 0.955 & Core \\
+14 & V: Regime & Regime-relativity; 10/14 metrics flip & Breakthrough \\
+15 & V: Difficulty & Quartile-bin $d = 4.15 \to 7.75$; geometry vs length & Core \\
+16/16B & V: Scale & 0.5B$\to$1.5B; Pythia replication & Replication \\
+17 & VI: Scale & 3B partial; hardware ceiling & Partial \\
+18/18B & VI: Formalise & 54-metric class; data corruption & Formalisation \\
+19 & VI: Invariance & 19 invariant signatures, 3 architectures & Breakthrough \\
+19B & VI: PCR & Variance decomposition; G3 Position Index & Breakthrough \\
+20 & VII: Transfer & Empathy geometry: prose domain artefact & Refuted \\
+21A & VII: Gemma & Gemma replication confirmed & Replication \\
+21B & VII: Mechanism & No sparse commitment circuit & Constraining \\
+\bottomrule
+\end{tabular}
+\caption{Full experimental progression across 21 experiments (26 entries).}
+\label{tab:experiments}
+\end{table*}
+
+
+% ============================================================
+\section{Data Availability}
+\label{app:data}
+
+All hidden state extractions, computed metrics, and analysis code are available at \url{https://github.com/ksoliman/trajectory-geometry}. Primary datasets:
+
+\texttt{metadata.csv}: Problem metadata, conditions, groups, correctness labels.
+
+\texttt{unified\_metrics.csv}: 33 metrics $\times$ 25 layers $\times$ 300 problems (Qwen-0.5B).
+
+\texttt{exp18\_metrics.csv}: 54-metric suite including attractor measures.
+
+\texttt{exp21a\_metrics\_full.csv}: 10 metrics $\times$ 27 layers $\times$ 400 problems (Gemma~3~1B).
+
+Models: \texttt{Qwen/Qwen2.5-0.5B-Instruct}, \texttt{Qwen/Qwen2.5-1.5B-Instruct}, \texttt{EleutherAI/pythia-410m}, \texttt{google/gemma-3-1b-it} via Hugging Face.
+
+
+\end{document}

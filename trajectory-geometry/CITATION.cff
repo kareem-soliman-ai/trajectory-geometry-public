@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this data or code, please cite the paper."
+title: "The Shape of Reasoning: Regime-Dependent Geometric Signatures in Transformer Hidden State Trajectories"
+authors:
+  - family-names: "Soliman"
+    given-names: "Kareem"
+    email: "kareem.soliman@outlook.com.au"
+type: "dataset"
+date-released: "2026-03-28"
+license: "MIT"

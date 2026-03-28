@@ -1,0 +1,5 @@
+Experiment,Model,N_problems,N_layers,Hidden_dim,Conditions,Primary_use,Date
+EXP-15,Qwen2.5-0.5B-Instruct,300,25,896,Direct/CoT x Correct/Wrong,Main analysis,2025-12-05
+EXP-18B,Qwen2.5-0.5B-Instruct,57,25,896,Direct/CoT,Scaling pilot,2026-02-13
+EXP-19,Multi (Pythia/Qwen/Gemma),300,25,768/896/1536,Direct/CoT,Cross-arch replication,2026-02-14
+EXP-21,Gemma-3-1B-IT,300,28,2048,Direct/CoT,Gemma deep-dive,2026-03-17
